@@ -54,6 +54,32 @@ def write_status(stage, detail=""):
     print(f"[{time.strftime('%H:%M:%S')}] STAGE {stage}: {detail}", flush=True)
 
 
+def ceilings_complete():
+    """True only when every held-out language has an oracle ceiling.
+
+    Returns False for a missing file, a corrupt file, or a partial one.  The
+    partial case is the one that matters: it looks exactly like success to an
+    existence check.
+    """
+    path = os.path.join(ROOT, "results", "llm", "ceilings.json")
+    if not os.path.exists(path):
+        return False
+    try:
+        got = json.load(open(path))
+        sys.path.insert(0, ROOT)
+        from llm.data import META_TEST
+        manifest = json.load(open("/content/data/manifest.json"))
+        want = [l for l in META_TEST if l in manifest.get("meta_test", META_TEST)]
+        missing = [l for l in want if l not in got]
+        if missing:
+            print(f"    ceilings.json is PARTIAL, missing {missing}", flush=True)
+            return False
+        return True
+    except Exception as e:
+        print(f"    ceilings.json unreadable ({type(e).__name__}), redoing", flush=True)
+        return False
+
+
 def run(cmd, tag, check_file=None):
     """Run a stage.  When `check_file` is given, that file existing is the real
     success criterion, not the exit code.
@@ -108,11 +134,19 @@ def main():
     # -------------------------------------------------------------- ceilings
     # GATE 2.  Must pass before any sweep: if the span between the bigram floor
     # and the from-scratch oracle is narrow, no meta-learner can show anything.
-    if not os.path.exists("results/llm/ceilings.json"):
+    #
+    # "Exists" is NOT the right completeness test here.  llm/oracle.py rewrites
+    # ceilings.json after every language so a long run is not lost, which means a
+    # partially finished oracle leaves a file containing two languages out of
+    # seven.  Skipping on existence would silently sweep against a ceiling set
+    # that is missing most of the held-out languages.  Check the contents.
+    if not ceilings_complete():
         write_status("ceilings", f"oracle at {a.oracle_steps} steps per language")
         run([sys.executable, "-u", "llm/oracle.py",
-             "--oracle-steps", str(a.oracle_steps)], "oracle ceilings",
-            check_file="results/llm/ceilings.json")
+             "--oracle-steps", str(a.oracle_steps)], "oracle ceilings")
+        if not ceilings_complete():
+            write_status("FAILED", "oracle finished but ceilings.json is incomplete")
+            sys.exit(1)
     write_status("ceilings", "done")
 
     # --------------------------------------------------------------- phase A
