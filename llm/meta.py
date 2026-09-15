@@ -55,11 +55,53 @@ is claim C7.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 import torch
 import torch.nn.functional as F
 from torch.func import functional_call
+
+
+def double_backward_safe_attention():
+    """Force the math SDPA kernel, which is the only one with a 2nd derivative.
+
+    Eq. 11 differentiates through the inner gradient, so computing it needs a
+    double backward through the whole task-learner, attention included.  The
+    fused and flash attention kernels implement only a first derivative:
+
+        RuntimeError: derivative for
+        aten::_scaled_dot_product_flash_attention_for_cpu_backward
+        is not implemented
+
+    The math backend is a plain composition of differentiable ops, so it has a
+    second derivative, at the cost of materialising the full attention matrix
+    and therefore more memory and less speed.
+
+    This is a real reason the approximate objective (Eq. 12) is the sensible
+    default on a transformer, over and above the fp16 argument.  On a
+    convolutional task-learner, which is what the paper used, the issue does not
+    arise at all, so it is a cost the port introduces rather than one the paper
+    was hiding.
+    """
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+        return sdpa_kernel(SDPBackend.MATH)
+    except Exception:
+        return nullcontext()
+
+
+def amp(dtype, device="cuda"):
+    """autocast when a half dtype is requested, otherwise a no-op.
+
+    Returning a real nullcontext rather than autocast(enabled=False) keeps
+    every code path in this file runnable on a CPU-only machine, which is
+    what lets tests/test_meta.py assert the Leap gradient is not the Reptile
+    direction without needing a GPU.
+    """
+    if dtype is None:
+        return nullcontext()
+    return torch.autocast(device, dtype=dtype)
 
 
 def _params_to_dict(model, names):
@@ -148,37 +190,70 @@ class MetaLearner:
         steps = steps or self.inner_steps
         theta = {n: p.detach().clone() for n, p in self.theta0.items()}
         traj = Trajectory(lang=getattr(sampler, "lang", "?"), points=[])
-        leap_acc = torch.zeros((), device=self.device) if track_leap else None
-        prev_flat = prev_loss = None
+
+        # C_Leap state.  We accumulate the Eq. 17 meta-gradient ONLINE, which is
+        # Algorithm 1 line 10, g_theta0 <- g_theta0 + grad C(theta0; theta_0:k).
+        leap_g = ({n: torch.zeros_like(p) for n, p in self.theta0.items()}
+                  if track_leap else None)
+        leap_len = torch.zeros((), device=self.device) if track_leap else None
+        prev_theta = prev_grad = prev_loss = None
 
         for k in range(steps):
             x, y = sampler.batch(batch_size)
             for p in theta.values():
                 p.requires_grad_(True)
 
-            with torch.autocast("cuda", dtype=self.amp_dtype,
-                                enabled=self.amp_dtype is not None):
+            with amp(self.amp_dtype, self.device):
                 loss = functional_loss(self.model, theta, self.phi, x, y,
                                        self.buffers)
             grads = torch.autograd.grad(loss, list(theta.values()),
                                         allow_unused=True)
 
             with torch.no_grad():
+                lv = loss.detach().float()
+
+                if track_leap and prev_theta is not None:
+                    # ---- Eq. 17, the Leap meta-gradient --------------------
+                    #
+                    #   grad C_Leap(theta0) ~= - sum_tau sum_k
+                    #       [ dL_task(theta_k) * grad L_task(theta_{k-1})
+                    #         + d_theta_k ] / || vartheta_k - vartheta_{k-1} ||_2
+                    #
+                    # with  vartheta_k = (theta_k,0 ... theta_k,n, L_task(theta_k))
+                    # so the distance is measured in the JOINT space of parameters
+                    # AND loss, which is what makes it a chordal distance on the
+                    # loss surface rather than a plain parameter distance.
+                    #
+                    # This is NOT the same as Reptile.  Reptile moves theta0
+                    # toward where training ended.  Leap shortens the PATH, so a
+                    # step that bought a large loss drop for a small parameter
+                    # move is weighted quite differently from one that did not.
+                    # An earlier version of this file used the Reptile direction
+                    # here by mistake, which would have made the `leap` and
+                    # `reptile` arms near-duplicates and quietly removed one of
+                    # the two baselines.
+                    dL = lv - prev_loss
+                    d_sq = dL * dL
+                    for n in theta:
+                        d_sq = d_sq + (theta[n].float() - prev_theta[n]).pow(2).sum()
+                    dist = d_sq.clamp_min(1e-12).sqrt()
+                    leap_len = leap_len + dist
+                    for n in theta:
+                        dtheta = theta[n].float() - prev_theta[n]
+                        pg = prev_grad[n]
+                        leap_g[n] -= ((dL * pg + dtheta) / dist).to(leap_g[n].dtype)
+
+                if track_leap:
+                    prev_theta = {n: v.detach().float().clone()
+                                  for n, v in theta.items()}
+                    prev_grad = {n: (g.detach().float().clone()
+                                     if g is not None else torch.zeros_like(p.float()))
+                                 for (n, p), g in zip(theta.items(), grads)}
+                    prev_loss = lv
+
                 new = {}
                 for (n, p), g in zip(theta.items(), grads):
                     new[n] = p - self.inner_lr * g if g is not None else p.clone()
-
-                if track_leap:
-                    # C_Leap (Eq. 16): the cumulative chordal distance between
-                    # consecutive points of the trajectory, in the joint space of
-                    # parameters AND loss:
-                    #   vartheta_k = (theta_k,0 ... theta_k,n, L_task(theta_k))
-                    flat = torch.cat([v.reshape(-1).float() for v in new.values()])
-                    lv = loss.detach().float()
-                    if prev_flat is not None:
-                        d2 = (flat - prev_flat).pow(2).sum() + (lv - prev_loss).pow(2)
-                        leap_acc = leap_acc + d2.clamp_min(1e-12).sqrt()
-                    prev_flat, prev_loss = flat, lv
 
                 theta = {n: v.detach() for n, v in new.items()}
                 traj.losses.append(float(loss.detach()))
@@ -189,7 +264,9 @@ class MetaLearner:
                     )
 
         traj.final = {n: v.detach() for n, v in theta.items()}
-        return traj, leap_acc
+        traj.leap_grad = leap_g
+        traj.leap_length = float(leap_len) if leap_len is not None else None
+        return traj, leap_g
 
     # ------------------------------------------------------- meta-gradients
 
@@ -217,34 +294,45 @@ class MetaLearner:
 
         x1, y1 = sampler.batch(batch_size)
         use_amp = (self.amp_dtype is not None) and not self.exact
-        with torch.autocast("cuda", dtype=self.amp_dtype, enabled=use_amp):
-            l_task = functional_loss(self.model, theta, self.phi, x1, y1,
-                                     self.buffers)
-        g = torch.autograd.grad(l_task, list(theta.values()),
-                                create_graph=self.exact, allow_unused=True)
+        # Eq. 11 needs a second derivative through attention; only the math
+        # kernel has one.  Eq. 12 never differentiates the inner gradient, so it
+        # keeps the fast fused kernel.
+        attn_ctx = double_backward_safe_attention() if self.exact else nullcontext()
+        with attn_ctx:
+            with amp(self.amp_dtype if use_amp else None, self.device):
+                l_task = functional_loss(self.model, theta, self.phi, x1, y1,
+                                         self.buffers)
+            g = torch.autograd.grad(l_task, list(theta.values()),
+                                    create_graph=self.exact, allow_unused=True)
 
-        stepped = {}
-        for (n, p), gi in zip(theta.items(), g):
-            v = p - self.inner_lr * gi if gi is not None else p
-            stepped[n] = v if self.exact else v.detach()
+            stepped = {}
+            for (n, p), gi in zip(theta.items(), g):
+                v = p - self.inner_lr * gi if gi is not None else p
+                stepped[n] = v if self.exact else v.detach()
 
-        x2, y2 = sampler.batch(batch_size)      # DIFFERENT batch, deliberately
-        with torch.autocast("cuda", dtype=self.amp_dtype, enabled=use_amp):
-            l_meta = functional_loss(self.model, stepped, self.phi, x2, y2,
-                                     self.buffers)
-        l_meta.backward()
+            x2, y2 = sampler.batch(batch_size)  # DIFFERENT batch, deliberately
+            with amp(self.amp_dtype if use_amp else None, self.device):
+                l_meta = functional_loss(self.model, stepped, self.phi, x2, y2,
+                                         self.buffers)
+            l_meta.backward()
         return float(l_meta.detach())
 
-    def leap_grad(self, traj, leap_acc):
-        """grad C_Leap(theta0), Eq. 16-17, accumulated into theta0.grad.
+    def leap_grad(self, traj, _unused=None):
+        """Write the accumulated Eq. 17 meta-gradient into theta0.grad.
 
-        Leap minimises the expected length of the adaptation trajectory, so the
-        gradient pulls theta0 towards a point from which every task is a SHORT
-        walk away.  Eq. 17 is the paper's first-order approximation, which avoids
-        backpropagating through adaptation exactly as WarpGrad does.
+        The accumulation itself happens inside `adapt`, online, because that is
+        what Algorithm 1 line 10 specifies and it keeps memory constant in the
+        number of adaptation steps.
 
-        Under Warp-Leap this becomes a joint search: the warp reshapes the space
-        while Leap shortens the paths through it.
+        Leap minimises the expected LENGTH of the adaptation trajectory, so the
+        pull on theta0 is toward a point from which every task is a SHORT walk
+        away.  That is a different objective from Reptile's, which simply moves
+        theta0 toward wherever training ended up.  Eq. 17 is the paper's
+        first-order approximation, which avoids backpropagating through the
+        adaptation process exactly as WarpGrad does.
+
+        Under Warp-Leap the two halves search jointly: the warp reshapes the
+        space while Leap shortens the paths through it.
             "Under WarpGrad, this becomes a joint search for a geometry in which
              task adaptation defines geodesics"            -- Section 4.2, page 9
         """
@@ -252,8 +340,9 @@ class MetaLearner:
             for n, p in self.theta0.items():
                 if p.grad is None:
                     p.grad = torch.zeros_like(p)
-                # pull theta0 toward the task's endpoint, weighted by path length
-                p.grad.add_(p.detach() - traj.final[n].to(p.device, p.dtype))
+                g = traj.leap_grad.get(n) if traj.leap_grad else None
+                if g is not None:
+                    p.grad.add_(g.to(p.device, p.dtype))
 
     def reptile_step(self, trajs, outer_lr):
         """theta0 <- theta0 + eps * mean_tau (theta_K^tau - theta0).
@@ -280,7 +369,7 @@ def evaluate_bpb(model, sampler, task_params, warp_params, buffers,
     """
     tot, n = 0.0, 0
     for x, y in sampler.sequential_batches(batch_size, max_batches):
-        with torch.autocast("cuda", dtype=amp_dtype, enabled=amp_dtype is not None):
+        with amp(amp_dtype):
             loss = functional_loss(model, task_params, warp_params, x, y, buffers)
         tot += float(loss.detach()) * x.numel()
         n += x.numel()
