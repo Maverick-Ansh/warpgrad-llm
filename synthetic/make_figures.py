@@ -75,7 +75,7 @@ BLACK = "#111111"   # gradient descent, as in the paper
 MAGENTA = "#E0218A"  # WarpGrad, as in the paper
 
 
-def invert_warp(warp, x0, steps=2000, lr=0.05):
+def invert_warp(warp, x0, steps=600, lr=0.08):
     """Find theta0 with Omega(theta0) ~= x0, so both optimisers start together.
 
     Returns (theta0, residual).  The residual is reported, never hidden: it is
@@ -197,7 +197,7 @@ def figure(tasks, warp, x0s, path, invert=True, plim=3.0, wlim=3.0, title=""):
     return recs
 
 
-def pick_hard(warp, gen, n_panels, third_term, pool=160, invert=True):
+def pick_hard(warp, gen, n_panels, third_term, pool=48, invert=True):
     """Select panels the way Appendix D says it does, and say so.
 
     Rule, stated so it can be criticised: sample `pool` random (task, init)
