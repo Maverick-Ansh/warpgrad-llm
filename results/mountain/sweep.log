@@ -1,0 +1,13 @@
+building fixed eval set (32 pairs, seed 4242)
+  GD baseline mean normalised score +0.6038
+
+=== residual_lr0.001_s0 ===============================
+    [fixed eval] meta-step   25  score +0.0017
+    [fixed eval] meta-step   50  score +0.0031
+    [fixed eval] meta-step   75  score +0.0043
+    [fixed eval] meta-step  100  score +0.0049
+  init +0.0000  ->  final +0.0049   cond(G^-1) 1.112   coverage 100.0%
+
+=== residual_lr0.001_s1 ===============================
+    [fixed eval] meta-step   25  score +0.0021
+    [fixed eval] meta-step   50  score +0.0035

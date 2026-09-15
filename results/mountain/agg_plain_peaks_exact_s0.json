@@ -1,0 +1,12 @@
+{
+  "n": 200,
+  "win_rate": 0.17,
+  "mean_delta": -0.6779799533626053,
+  "median_delta": -0.3075511157512665,
+  "std_delta": 1.4355283119438254,
+  "sem_delta": 0.10150718039607565,
+  "median_inversion_residual": 0.6199292540550232,
+  "max_inversion_residual": 2.074394941329956,
+  "warp": "results/mountain/warp_plain_peaks_exact_s0.pt",
+  "inverted_init": true
+}

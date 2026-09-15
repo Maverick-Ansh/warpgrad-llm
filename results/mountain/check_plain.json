@@ -1,0 +1,18 @@
+{
+  "warp": "results/mountain/warp_plain_peaks_exact_s0.pt",
+  "warp_init": "plain",
+  "third_term": "peaks",
+  "coverage": {
+    "n": 256,
+    "coverage": 0.25390625,
+    "median_residual": 0.5798996686935425,
+    "p90_residual": 1.5387437343597412,
+    "max_residual": 2.1770904064178467,
+    "tol": 0.01
+  },
+  "flee_mean": 0.09047968140621768,
+  "flee_beats_guessing": 0.59375,
+  "median_bracket_span": 3.2771850302815437,
+  "degenerate_tasks": 0,
+  "verdict": "REFUSE"
+}

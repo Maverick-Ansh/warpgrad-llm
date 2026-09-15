@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+results/smoke/
+data/
+*.npy
+.ipynb_checkpoints/

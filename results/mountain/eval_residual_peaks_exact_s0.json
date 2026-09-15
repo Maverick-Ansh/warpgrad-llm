@@ -1,0 +1,39 @@
+{
+  "n_requested": 150,
+  "n_used": 150,
+  "n_skipped_unreachable": 0,
+  "gd": {
+    "mean": 0.47220981936347567,
+    "sem": 0.03573686339013068,
+    "median": 0.40277364940552585
+  },
+  "warp": {
+    "mean": 0.46048222305410774,
+    "sem": 0.03608859802072545,
+    "median": 0.3294732015745441
+  },
+  "gd_tuned": {
+    "mean": 0.4864208396336566,
+    "sem": 0.035549557151761696,
+    "median": 0.4270431590478059
+  },
+  "flee": {
+    "mean": 0.06831371615108568,
+    "sem": 0.019334370500666463,
+    "median": -1.8809999638199054e-09
+  },
+  "warp_beats_gd": 0.1,
+  "warp_beats_gd_tuned": 0.04666666666666667,
+  "warp_beats_flee": 0.58,
+  "gd_beats_flee": 0.5866666666666667,
+  "paired_delta_vs_gd": {
+    "mean": -0.011727596309367844,
+    "sem": 0.008947454164675144
+  },
+  "paired_delta_vs_gd_tuned": {
+    "mean": -0.025938616579548775,
+    "sem": 0.009692221524221611
+  },
+  "median_residual": 0.0,
+  "warp_path": "results/mountain/warp_residual_peaks_exact_s0.pt"
+}
