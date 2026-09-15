@@ -96,3 +96,92 @@ building fixed eval set (32 pairs, seed 4242)
     [fixed eval] meta-step   25  score -0.0663
     [fixed eval] meta-step   50  score -0.6496
     [fixed eval] meta-step   75  score -0.3111
+    [fixed eval] meta-step  100  score -0.2372
+  init -0.0664  ->  final -0.2372   cond(G^-1) 11.529   coverage 15.6%
+
+=== plain_lr0.001_s2 ==================================
+    [fixed eval] meta-step   25  score -0.0125
+    [fixed eval] meta-step   50  score -0.4231
+    [fixed eval] meta-step   75  score -0.4389
+    [fixed eval] meta-step  100  score -0.4224
+  init -0.0124  ->  final -0.4224   cond(G^-1) 41.976   coverage 6.2%
+
+=== plain_lr0.01_s0 ===================================
+    [fixed eval] meta-step   25  score -0.0537
+    [fixed eval] meta-step   50  score -0.0202
+    [fixed eval] meta-step   75  score -0.0298
+    [fixed eval] meta-step  100  score -0.0119
+  init -0.7681  ->  final -0.0119   cond(G^-1) 3.037   coverage 71.9%
+
+=== plain_lr0.01_s1 ===================================
+    [fixed eval] meta-step   25  score +0.0789
+    [fixed eval] meta-step   50  score -0.0271
+    [fixed eval] meta-step   75  score -0.0467
+    [fixed eval] meta-step  100  score -0.0172
+  init -0.0664  ->  final -0.0172   cond(G^-1) 4.899   coverage 59.4%
+
+=== plain_lr0.01_s2 ===================================
+    [fixed eval] meta-step   25  score -0.1132
+    [fixed eval] meta-step   50  score -0.0703
+    [fixed eval] meta-step   75  score -0.0514
+    [fixed eval] meta-step  100  score -0.0790
+  init -0.0124  ->  final -0.0790   cond(G^-1) 4.669   coverage 68.8%
+
+=== plain_lr0.03_s0 ===================================
+    [fixed eval] meta-step   25  score -0.0349
+    [fixed eval] meta-step   50  score -0.0587
+    [fixed eval] meta-step   75  score -0.3029
+    [fixed eval] meta-step  100  score -0.0362
+  init -0.7681  ->  final -0.0362   cond(G^-1) 2.603   coverage 75.0%
+
+=== plain_lr0.03_s1 ===================================
+    [fixed eval] meta-step   25  score -0.0411
+    [fixed eval] meta-step   50  score -0.1303
+    [fixed eval] meta-step   75  score -0.0781
+    [fixed eval] meta-step  100  score -0.0157
+  init -0.0664  ->  final -0.0157   cond(G^-1) 2.369   coverage 78.1%
+
+=== plain_lr0.03_s2 ===================================
+    [fixed eval] meta-step   25  score -0.1140
+    [fixed eval] meta-step   50  score -0.2976
+    [fixed eval] meta-step   75  score +0.0816
+    [fixed eval] meta-step  100  score -0.2337
+  init -0.0124  ->  final -0.2337   cond(G^-1) 16.727   coverage 9.4%
+
+=== plain_lr0.1_s0 ====================================
+    [fixed eval] meta-step   25  score -0.5181
+    [fixed eval] meta-step   50  score -0.5174
+    [fixed eval] meta-step   75  score -0.5181
+    [fixed eval] meta-step  100  score -0.5181
+  init -0.7681  ->  final -0.5181   cond(G^-1) 43.382   coverage 100.0%
+
+=== plain_lr0.1_s1 ====================================
+    [fixed eval] meta-step   25  score -0.5496
+    [fixed eval] meta-step   50  score -0.6078
+    [fixed eval] meta-step   75  score -0.5101
+    [fixed eval] meta-step  100  score -0.6175
+  init -0.0664  ->  final -0.6175   cond(G^-1) 46.045   coverage 68.8%
+
+=== plain_lr0.1_s2 ====================================
+    [fixed eval] meta-step   25  score -0.5475
+    [fixed eval] meta-step   50  score -0.5325
+    [fixed eval] meta-step   75  score -0.5346
+    [fixed eval] meta-step  100  score -0.5210
+  init -0.0124  ->  final -0.5210   cond(G^-1) 13.469   coverage 96.9%
+
+==========================================================================
+config                  coverage    cond   score@0   score@end
+--------------------------------------------------------------------------
+residual lr=0.001        100.0%    1.09   +0.0000  +0.0047+/-0.000
+residual lr=0.01         100.0%    2.56   +0.0000  -0.0075+/-0.005
+residual lr=0.03          68.8%    9.14   +0.0000  -0.0478+/-0.015
+residual lr=0.1           76.0%   43.80   +0.0000  -0.5627+/-0.031
+plain lr=0.001            18.8%   18.71   -0.2823  -0.2475+/-0.080
+plain lr=0.01             66.7%    4.20   -0.2823  -0.0360+/-0.018
+plain lr=0.03             54.2%    7.23   -0.2823  -0.0952+/-0.057
+plain lr=0.1              88.5%   34.30   -0.2823  -0.5522+/-0.027
+==========================================================================
+score = mean paired (WarpGrad - GD) normalised score on the fixed set.
+positive means WarpGrad beats gradient descent.  0.0000 at step 0 for
+init=residual is a correctness check, not a result.
+wrote results/mountain/sweep.json

@@ -1,0 +1,128 @@
+"""One detached pipeline: corpus -> ceilings -> Phase A -> Phase B -> summary.
+
+WHY THIS FILE EXISTS
+====================
+The first attempt at the language sweep ran interactively from notebook cells.
+The Colab session was then reset, which wiped /content, and roughly two hours of
+finished GPU work went with it because the results had only ever existed on that
+machine.
+
+Two changes, both cheap, both learned the hard way:
+
+  1. EVERYTHING RUNS FROM ONE DETACHED PROCESS.  Launch it once, and it survives
+     the notebook kernel dying, the MCP connection dropping, and the browser
+     being closed.  It does not survive the VM being recycled, but nothing does.
+
+  2. EVERY STAGE IS SKIPPABLE AND EVERY RESULT IS SMALL.  Each stage checks for
+     its own output file first, so a re-launch after any interruption resumes
+     instead of restarting.  A compact STATUS.json is rewritten after every
+     stage, so progress can be polled with a one-line cell that cannot itself
+     time out.
+
+The results files are a few kilobytes each, so they can be read back out through
+the notebook and committed to git from the developer machine.  Never leave the
+only copy of a finished result on ephemeral storage.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+ROOT = "/content/warpgrad-llm"
+STATUS = os.path.join(ROOT, "results", "STATUS.json")
+
+
+def write_status(stage, detail=""):
+    os.makedirs(os.path.dirname(STATUS), exist_ok=True)
+    prev = {}
+    if os.path.exists(STATUS):
+        try:
+            prev = json.load(open(STATUS))
+        except Exception:
+            prev = {}
+    prev.setdefault("log", []).append(
+        dict(t=time.strftime("%H:%M:%S"), stage=stage, detail=detail))
+    prev["stage"] = stage
+    prev["detail"] = detail
+    prev["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    json.dump(prev, open(STATUS, "w"), indent=2)
+    print(f"[{time.strftime('%H:%M:%S')}] STAGE {stage}: {detail}", flush=True)
+
+
+def run(cmd, tag):
+    print(f"\n{'=' * 70}\n>>> {tag}\n{'=' * 70}", flush=True)
+    r = subprocess.run(cmd, cwd=ROOT)
+    if r.returncode != 0:
+        write_status("FAILED", f"{tag} exited {r.returncode}")
+        sys.exit(r.returncode)
+    return r
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--meta-steps", type=int, default=120)
+    ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1])
+    ap.add_argument("--ladder-seeds", type=int, nargs="+", default=[0])
+    ap.add_argument("--max-minutes", type=float, default=45.0)
+    ap.add_argument("--oracle-steps", type=int, default=3000)
+    ap.add_argument("--skip-b", action="store_true")
+    a = ap.parse_args()
+
+    os.chdir(ROOT)
+    t0 = time.time()
+
+    # ---------------------------------------------------------------- corpus
+    write_status("corpus", "streaming 32 Wikipedia languages")
+    if not os.path.exists("/content/data/manifest.json"):
+        run([sys.executable, "-c",
+             "import sys; sys.path.insert(0,'.');"
+             "from llm.data import build_corpus;"
+             "build_corpus('/content/data', train_mb=2.0, val_mb=0.5, verbose=True)"],
+            "build corpus")
+    write_status("corpus", "done")
+
+    # -------------------------------------------------------------- ceilings
+    # GATE 2.  Must pass before any sweep: if the span between the bigram floor
+    # and the from-scratch oracle is narrow, no meta-learner can show anything.
+    if not os.path.exists("results/llm/ceilings.json"):
+        write_status("ceilings", f"oracle at {a.oracle_steps} steps per language")
+        run([sys.executable, "-u", "llm/oracle.py",
+             "--oracle-steps", str(a.oracle_steps)], "oracle ceilings")
+    write_status("ceilings", "done")
+
+    # --------------------------------------------------------------- phase A
+    write_status("phaseA", f"4 arms x {len(a.seeds)} seeds, C1 and C2")
+    run([sys.executable, "-u", "scripts/run_sweep.py", "--phases", "A",
+         "--seeds", *map(str, a.seeds), "--meta-steps", str(a.meta_steps),
+         "--max-minutes", str(a.max_minutes), "--gpus", "0", "1"], "phase A")
+    write_status("phaseA", "done")
+
+    # --------------------------------------------------------------- phase B
+    if not a.skip_b:
+        write_status("phaseB", f"capacity ladder, C4, seeds {a.ladder_seeds}")
+        run([sys.executable, "-u", "scripts/run_sweep.py", "--phases", "B",
+             "--seeds", *map(str, a.ladder_seeds), "--meta-steps", str(a.meta_steps),
+             "--max-minutes", str(a.max_minutes), "--gpus", "0", "1"], "phase B")
+        write_status("phaseB", "done")
+
+    # ------------------------------------------------------------------- C5
+    ck = "results/llm/A_warp_leap_linear_s0.pt"
+    if os.path.exists(ck):
+        write_status("fisher", "C5, is the learned geometry Fisher-like")
+        subprocess.run([sys.executable, "-u", "llm/fisher_check.py",
+                        "--ckpt", ck], cwd=ROOT)
+    write_status("fisher", "done")
+
+    # -------------------------------------------------------------- analysis
+    write_status("analyse", "building tables and figures")
+    subprocess.run([sys.executable, "-u", "scripts/analyse.py"], cwd=ROOT)
+    write_status("DONE", f"total {(time.time() - t0) / 60:.1f} min")
+
+
+if __name__ == "__main__":
+    main()
