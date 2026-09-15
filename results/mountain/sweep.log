@@ -26,3 +26,16 @@ building fixed eval set (32 pairs, seed 4242)
     [fixed eval] meta-step   25  score +0.0045
     [fixed eval] meta-step   50  score +0.0048
     [fixed eval] meta-step   75  score +0.0049
+    [fixed eval] meta-step  100  score -0.0157
+  init +0.0000  ->  final -0.0157   cond(G^-1) 3.716   coverage 100.0%
+
+=== residual_lr0.01_s1 ================================
+    [fixed eval] meta-step   25  score -0.0274
+    [fixed eval] meta-step   50  score -0.0110
+    [fixed eval] meta-step   75  score -0.0135
+    [fixed eval] meta-step  100  score -0.0109
+  init +0.0000  ->  final -0.0109   cond(G^-1) 2.539   coverage 100.0%
+
+=== residual_lr0.01_s2 ================================
+    [fixed eval] meta-step   25  score +0.0002
+    [fixed eval] meta-step   50  score -0.0295
