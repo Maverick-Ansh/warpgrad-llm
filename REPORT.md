@@ -364,10 +364,101 @@ announce themselves and the expensive ones do not.
 
 ### 6.1 Tier 0, the mountain
 
-RUNNING. Figures are generated and the gate has been passed with the residual
-parameterisation. The meta learning rate sweep, which Appendix D does not
-specify, is in progress and is required before any verdict is recorded, because
-early runs show the sign of the effect depends on it.
+**The figure reproduces. The quantitative claim it suggests does not.**
+
+#### The picture
+
+Figure 3 and Figure 7 reproduce qualitatively. On starting points selected the
+way Appendix D selects them, the warped surface is visibly smoother than the
+native one and plain gradient descent in the warped space reaches minima that
+plain gradient descent on the native surface does not. `figures/` contains the
+reproduction, the same warp on uniformly random tasks, and the broken instrument
+from section 5.1 kept deliberately for comparison.
+
+#### The numbers the figure does not give you
+
+Appendix D presents the synthetic experiment as intuition-building, not as
+evidence, and the paper makes no quantitative claim here. So the following is an
+*addition* to the paper rather than a test of something it asserted, and the
+verdict on C3 has to be read with that in mind.
+
+The meta learning rate is the one thing Appendix D does not state, and it turns
+out to decide the sign of the result, so it was swept rather than picked.
+22 of 24 planned runs completed (the last two were lost when the machine ran out
+of memory, which does not affect any cell below since every cell has 3 seeds
+except the one marked n=1).
+
+Scores are normalised: `1.0` is the global minimum of that surface, `0.0` is the
+expected loss of a random point in the domain. **Plain gradient descent scores
+0.6038** on this scale. The column `s@0` is the measured advantage *before any
+meta-update*, which for the residual parameterisation must be exactly `0.0000`
+by construction and is a correctness check on the whole measurement chain, not a
+result.
+
+| warp init | meta lr | coverage | cond(G⁻¹) | s@0 | **s@end** | n | usable? |
+|---|---|---|---|---|---|---|---|
+| plain | 0.001 | 19% | 18.71 | −0.2823 | −0.2475 ± 0.0801 | 3 | **no**, coverage |
+| plain | 0.01 | 67% | 4.20 | −0.2823 | −0.0360 ± 0.0176 | 3 | **no**, coverage |
+| plain | 0.03 | 54% | 7.23 | −0.2823 | −0.0952 ± 0.0568 | 3 | **no**, coverage |
+| plain | 0.1 | 100% | 43.38 | −0.7681 | −0.5181 | 1 | yes |
+| residual | **0.001** | **100%** | 1.09 | +0.0000 | **+0.0047 ± 0.0003** | 3 | **yes** |
+| residual | 0.01 | 100% | 2.56 | +0.0000 | −0.0075 ± 0.0049 | 3 | yes |
+| residual | 0.03 | 69% | 9.14 | +0.0000 | −0.0478 ± 0.0153 | 3 | **no**, coverage |
+| residual | 0.1 | 76% | 43.80 | +0.0000 | −0.5627 ± 0.0313 | 3 | **no**, coverage |
+
+Three things fall out of this table.
+
+**One. Exactly one configuration beats gradient descent, and the margin is
+negligible.** Residual init at meta learning rate 0.001 gives +0.0047 against a
+gradient descent baseline of 0.6038, which is an improvement of **0.8 percent**.
+The quoted ± 0.0003 is the spread across meta-training seeds, not across tasks,
+so it says the effect is *reproducible*, not that it is *large*. On a fresh
+random sample of 150 tasks the same warp scored −0.0117 ± 0.0089 against plain
+gradient descent and −0.0259 ± 0.0097 against gradient descent given a tuned
+learning rate. The honest summary is that **the effect is a few thousandths of
+the scale in either direction, and which direction you get depends on the
+evaluation sample.**
+
+**Two. More warping is monotonically worse.** As the meta learning rate rises,
+the learned metric becomes more anisotropic (cond(G⁻¹) climbs from 1.09 to 43.8)
+and the score falls, ending at −0.5627. Part of this is simply that a meta
+learning rate of 0.1 is too large and the warp diverges. But the trend is already
+negative at 0.01, where cond(G⁻¹) is only 2.56 and coverage is still 100 percent,
+so it is not purely an instability artefact.
+
+**Three, and this is the finding worth keeping. The instrument degrades exactly
+when the method is pushed hardest.** Coverage is not a fixed property of the
+parameterisation. It falls as the warp learns:
+
+| meta lr | cond(G⁻¹) | coverage |
+|---|---|---|
+| 0.001 | 1.09 | 100% |
+| 0.01 | 2.56 | 100% |
+| 0.03 | 9.14 | 69% |
+| 0.1 | 43.80 | 76% |
+
+The residual parameterisation starts surjective onto the domain, by construction.
+It does not stay that way. The more geometry Ω acquires, the more of the
+initialisation domain falls outside its image, and the fewer starting points
+admit a well-defined comparison at all. **You therefore cannot sweep the meta
+learning rate and take the best number**, because the configurations that warp
+most are also the configurations whose surviving evaluation sample is smallest
+and most biased. The rows marked "no" above are reported for completeness and
+must not be compared against the others.
+
+This is a property of the *explicit* warp formulation used for visualisation in
+Appendix D. It does not apply to the implicit warp-layers used everywhere else in
+the paper, which never need to be inverted because nobody ever has to place two
+optimisers at the same point. It is, as far as we can tell, unremarked in the
+paper.
+
+#### Where the benefit actually lives
+
+RUNNING. The stratified analysis, which bins results by how badly plain gradient
+descent did and asks whether WarpGrad wins specifically where gradient descent
+struggles, is the measurement that would reconcile a reproducible figure with a
+negligible average. Bins are assigned on the baseline's own score and never look
+at WarpGrad.
 
 ### 6.2 Tier 1 and 2, language modelling
 
