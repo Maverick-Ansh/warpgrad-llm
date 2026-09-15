@@ -54,12 +54,30 @@ def write_status(stage, detail=""):
     print(f"[{time.strftime('%H:%M:%S')}] STAGE {stage}: {detail}", flush=True)
 
 
-def run(cmd, tag):
+def run(cmd, tag, check_file=None):
+    """Run a stage.  When `check_file` is given, that file existing is the real
+    success criterion, not the exit code.
+
+    This matters because the `datasets` library aborts at interpreter shutdown
+    on this image:
+
+        terminate called without an active exception   (SIGABRT, exit -6)
+
+    That happens AFTER every byte has been written to disk, so the exit code
+    reports a failure that did not occur.  Judging a stage by its output rather
+    than its return code is the robust thing to do anyway: the question is
+    whether the artefact exists, not how the process felt about exiting.
+    """
     print(f"\n{'=' * 70}\n>>> {tag}\n{'=' * 70}", flush=True)
     r = subprocess.run(cmd, cwd=ROOT)
-    if r.returncode != 0:
+    produced = bool(check_file) and os.path.exists(
+        check_file if os.path.isabs(check_file) else os.path.join(ROOT, check_file))
+    if r.returncode != 0 and not produced:
         write_status("FAILED", f"{tag} exited {r.returncode}")
-        sys.exit(r.returncode)
+        sys.exit(r.returncode or 1)
+    if r.returncode != 0:
+        print(f"    (exit {r.returncode} ignored: {check_file} was written)",
+              flush=True)
     return r
 
 
