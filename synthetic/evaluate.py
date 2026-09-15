@@ -134,6 +134,66 @@ def summarise(rows, skipped, n_pairs):
     )
 
 
+def stratify(rows, n_bins=4):
+    """Split results by how badly PLAIN GRADIENT DESCENT did, then compare.
+
+    This is the analysis that reconciles the figure with the average.
+
+    Figure 3 and Figure 7 are not a random sample.  Appendix D says the
+    initialisation is "chosen such that standard gradient descent struggles",
+    and the figure's whole job is to show what warping does in exactly that
+    situation.  So the right question is not "does WarpGrad beat gradient
+    descent on average", it is:
+
+        does WarpGrad beat gradient descent WHERE GRADIENT DESCENT STRUGGLES?
+
+    Those are different questions and they can have different answers.  If
+    WarpGrad wins on the cases where gradient descent does badly and loses
+    slightly everywhere else, then both the figure and a small average effect
+    are true at the same time, and neither is misleading.
+
+    We bin by the GD score itself (quartiles, lowest first) and report the
+    paired difference within each bin.  Binning on the baseline's own score and
+    not on the difference is what keeps this from being a way to manufacture a
+    result: the bin assignment does not look at WarpGrad at all.
+    """
+    gd = np.array([r["gd"] for r in rows])
+    wg = np.array([r["warp"] for r in rows])
+    tuned = np.array([r["gd_tuned"] for r in rows])
+    order = np.argsort(gd)
+    bins = np.array_split(order, n_bins)
+
+    out = []
+    for i, idx in enumerate(bins):
+        d = wg[idx] - gd[idx]
+        out.append(dict(
+            bin=i, n=len(idx),
+            gd_range=[float(gd[idx].min()), float(gd[idx].max())],
+            gd_mean=float(gd[idx].mean()), warp_mean=float(wg[idx].mean()),
+            tuned_mean=float(tuned[idx].mean()),
+            delta_mean=float(d.mean()),
+            delta_sem=float(d.std() / np.sqrt(max(len(d), 1))),
+            win_rate=float((wg[idx] > gd[idx]).mean()),
+        ))
+    return out
+
+
+def report_strata(strata):
+    print("-" * 70)
+    print("  STRATIFIED BY HOW BADLY PLAIN GRADIENT DESCENT DID")
+    print("  (quartiles of the GD score itself, lowest first.  The figure in the")
+    print("   paper is drawn from the leftmost bin by construction.)")
+    print(f"  {'bin':<5}{'n':>4}{'GD score':>20}{'WarpGrad':>10}"
+          f"{'delta':>10}{'sem':>8}{'win':>7}")
+    for s in strata:
+        rng = f"[{s['gd_range'][0]:+.2f},{s['gd_range'][1]:+.2f}]"
+        label = "worst" if s["bin"] == 0 else ("best" if s["bin"] == len(strata) - 1
+                                               else f"q{s['bin'] + 1}")
+        print(f"  {label:<5}{s['n']:>4}{rng:>20}{s['warp_mean']:>10.4f}"
+              f"{s['delta_mean']:>+10.4f}{s['delta_sem']:>8.4f}"
+              f"{s['win_rate']:>7.0%}")
+
+
 def report(s):
     print("=" * 70)
     print(f"  pairs used {s['n_used']}/{s['n_requested']}"
@@ -180,7 +240,9 @@ if __name__ == "__main__":
         sys.exit(1)
     s = summarise(rows, skipped, a.n_pairs)
     s["warp_path"] = a.warp
+    s["strata"] = stratify(rows)
     report(s)
+    report_strata(s["strata"])
 
     out = a.out or f"results/mountain/eval_{os.path.basename(a.warp)[5:-3]}.json"
     os.makedirs(os.path.dirname(out), exist_ok=True)
