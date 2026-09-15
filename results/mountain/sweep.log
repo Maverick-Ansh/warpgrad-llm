@@ -58,3 +58,6 @@ building fixed eval set (32 pairs, seed 4242)
   init +0.0000  ->  final -0.0519   cond(G^-1) 13.053   coverage 90.6%
 
 === residual_lr0.03_s2 ================================
+    [fixed eval] meta-step   25  score -0.0510
+    [fixed eval] meta-step   50  score -0.1110
+    [fixed eval] meta-step   75  score -0.2820
