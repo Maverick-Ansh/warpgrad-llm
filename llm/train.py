@@ -193,7 +193,11 @@ def main():
         trajs, leap_accs = [], []
 
         # --- Algorithm 2, lines 5-11: collect trajectories -------------------
-        for l in batch_langs:
+        # `joint` never adapts during meta-training (that is what makes it the
+        # no-meta-learning control), so running the inner loop for it would
+        # double its cost for nothing.  It still adapts at meta-TEST time, like
+        # every other arm.
+        for l in (batch_langs if args.arm != "joint" else []):
             collect = args.algorithm == "offline" and learner.phi
             traj, acc = learner.adapt(
                 samplers[l], args.batch_size, steps=args.inner_steps,
@@ -232,23 +236,38 @@ def main():
             torch.nn.utils.clip_grad_norm_(list(learner.theta0.values()), 1.0)
             opt_theta.step()
         elif args.arm == "joint":
-            # plain multi-task training: one SGD-style step on theta0 toward the
-            # average task gradient at theta0 itself, no adaptation involved
-            opt_theta.zero_grad(set_to_none=True)
-            for l in batch_langs:
-                x, y = samplers[l].batch(args.batch_size)
-                for p in learner.theta0.values():
-                    p.requires_grad_(True)
-                with torch.autocast("cuda", dtype=amp_dtype,
-                                    enabled=amp_dtype is not None):
-                    from llm.meta import functional_loss
-                    loss = functional_loss(model, learner.theta0, learner.phi,
-                                           x, y, learner.buffers)
-                (loss / len(batch_langs)).backward()
-            torch.nn.utils.clip_grad_norm_(list(learner.theta0.values()), 1.0)
-            opt_theta.step()
+            # Plain multi-task training of theta0: the "Finetuning" row of
+            # Table 1, and the no-meta-learning control.
+            #
+            # FAIRNESS.  It must get a COMPUTE budget comparable to the other
+            # arms, or it is a strawman and every C1 number is inflated.  Each
+            # meta-step of Warp-Leap costs meta_batch * inner_steps forward and
+            # backward passes for adaptation, plus the meta-gradient passes.  An
+            # earlier version of this file gave `joint` a SINGLE gradient step
+            # per meta-step, which is roughly 500x less signal, and it would have
+            # lost for that reason alone.
+            #
+            # So `joint` now takes `inner_steps` gradient steps per meta-step, on
+            # batches drawn from randomly chosen meta-training languages, which
+            # is exactly what ordinary multi-task pretraining looks like.
+            from llm.meta import functional_loss
+            for _ in range(args.inner_steps):
+                opt_theta.zero_grad(set_to_none=True)
+                for l in random.sample(train_langs,
+                                       min(args.meta_batch, len(train_langs))):
+                    x, y = samplers[l].batch(args.batch_size)
+                    for p in learner.theta0.values():
+                        p.requires_grad_(True)
+                    with torch.autocast("cuda", dtype=amp_dtype,
+                                        enabled=amp_dtype is not None):
+                        loss = functional_loss(model, learner.theta0, learner.phi,
+                                               x, y, learner.buffers)
+                    (loss / args.meta_batch).backward()
+                torch.nn.utils.clip_grad_norm_(list(learner.theta0.values()), 1.0)
+                opt_theta.step()
 
-        mean_tl = float(np.mean([np.mean(t.losses[-10:]) for t in trajs]))
+        mean_tl = (float(np.mean([np.mean(t.losses[-10:]) for t in trajs]))
+                   if trajs else float("nan"))
         hist["meta_step"].append(m)
         hist["mean_task_loss"].append(mean_tl)
         hist["meta_loss"].append(meta_loss / max(n_meta, 1))
