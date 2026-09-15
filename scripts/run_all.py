@@ -80,10 +80,11 @@ def main():
     write_status("corpus", "streaming 32 Wikipedia languages")
     if not os.path.exists("/content/data/manifest.json"):
         run([sys.executable, "-c",
-             "import sys; sys.path.insert(0,'.');"
+             "import sys, os; sys.path.insert(0,'.');"
              "from llm.data import build_corpus;"
-             "build_corpus('/content/data', train_mb=2.0, val_mb=0.5, verbose=True)"],
-            "build corpus")
+             "build_corpus('/content/data', train_mb=2.0, val_mb=0.5, verbose=True);"
+             "sys.stdout.flush(); os._exit(0)"],
+            "build corpus", check_file="/content/data/manifest.json")
     write_status("corpus", "done")
 
     # -------------------------------------------------------------- ceilings
@@ -92,7 +93,8 @@ def main():
     if not os.path.exists("results/llm/ceilings.json"):
         write_status("ceilings", f"oracle at {a.oracle_steps} steps per language")
         run([sys.executable, "-u", "llm/oracle.py",
-             "--oracle-steps", str(a.oracle_steps)], "oracle ceilings")
+             "--oracle-steps", str(a.oracle_steps)], "oracle ceilings",
+            check_file="results/llm/ceilings.json")
     write_status("ceilings", "done")
 
     # --------------------------------------------------------------- phase A
